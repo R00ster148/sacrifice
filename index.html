@@ -64,6 +64,9 @@
   .slot.targetable::after{
     content:'+'; color:var(--blood-bright); font-size:20px; opacity:0.6;
   }
+  .slot.targetable.drag-hover{ box-shadow:0 0 28px rgba(138,20,20,0.9), inset 0 0 14px #000; border-color:#c83a3a; }
+  .slot.targetable.drag-hover::after{ opacity:1; }
+  #drag-ghost{ position:fixed; z-index:999; pointer-events:none; transform:translate(-50%,-50%) scale(1.12) rotate(-4deg); }
 
   .card{
     width:108px; height:152px; border-radius:6px; position:relative; cursor:pointer;
@@ -337,11 +340,9 @@ function render(){
   document.getElementById('player-bones').textContent = state.playerBones;
   const hint = document.getElementById('hint');
   if(state.sacrificeMode){
-    hint.textContent = 'Click one of your creatures to sacrifice it for the selected card.';
-  } else if(state.selectedHandIdx !== null){
-    hint.textContent = 'Click an empty lane to play this card.';
+    hint.textContent = 'Click creatures on your side to sacrifice them as payment. Esc to cancel.';
   } else {
-    hint.textContent = state.turn === 'player' ? 'Your turn — play a card or end your turn.' : "Opponent's turn...";
+    hint.textContent = state.turn === 'player' ? 'Drag a card from your hand onto an empty lane to play it.' : "Opponent's turn...";
   }
   document.getElementById('end-turn-btn').disabled = state.turn !== 'player' || state.over;
 }
@@ -413,10 +414,6 @@ function renderBoard(){
       slot.appendChild(c);
     } else {
       slot.innerHTML = `<span class="empty-slot-icon">${EMPTY_SLOT_SVG}</span>`;
-      if(state.selectedHandIdx !== null && !state.sacrificeMode){
-        slot.classList.add('targetable');
-        slot.onclick = () => tryPlayCard(i);
-      }
     }
     playerRow.appendChild(slot);
   }
@@ -428,27 +425,97 @@ function renderHand(){
   state.hand.forEach((card, idx) => {
     const c = document.createElement('div');
     c.className = 'card';
-    if(idx === state.selectedHandIdx) c.classList.add('selected');
     c.innerHTML = cardHTML(card);
-    c.onclick = () => selectHandCard(idx);
     attachTilt(c);
+    attachHandDrag(c, idx);
     hand.appendChild(c);
   });
 }
 
-/* ---------- Player actions ---------- */
-function selectHandCard(idx){
-  if(state.turn !== 'player' || state.over) return;
-  if(state.selectedHandIdx === idx){
-    state.selectedHandIdx = null;
-    state.sacrificeMode = false;
-  } else {
-    state.selectedHandIdx = idx;
-    state.sacrificeMode = false;
-  }
-  render();
+/* ---------- Drag and drop (pick up a card, drop it on a lane) ---------- */
+let dragIdx = null, dragOriginEl = null, dragGhost = null;
+
+function attachHandDrag(el, idx){
+  el.addEventListener('pointerdown', e => {
+    if(state.turn !== 'player' || state.over) return;
+    const startX = e.clientX, startY = e.clientY;
+    let moved = false;
+
+    const onMove = ev => {
+      if(!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > 6){
+        moved = true;
+        startDrag(idx, el, ev);
+      }
+      if(moved) updateDrag(ev);
+    };
+    const onUp = ev => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      if(moved) endDrag(ev);
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  });
 }
 
+function startDrag(idx, originEl, ev){
+  dragIdx = idx;
+  dragOriginEl = originEl;
+  originEl.style.opacity = '0.15';
+
+  dragGhost = originEl.cloneNode(true);
+  dragGhost.id = 'drag-ghost';
+  dragGhost.style.left = ev.clientX + 'px';
+  dragGhost.style.top = ev.clientY + 'px';
+  document.body.appendChild(dragGhost);
+
+  const card = state.hand[idx];
+  const aliveCount = state.playerBoard.filter(Boolean).length;
+  document.querySelectorAll('#player-row .slot').forEach((slot, i) => {
+    if(!state.playerBoard[i] && (card.cost === 0 || aliveCount >= card.cost)){
+      slot.classList.add('targetable');
+    }
+  });
+}
+
+function updateDrag(ev){
+  if(!dragGhost) return;
+  dragGhost.style.left = ev.clientX + 'px';
+  dragGhost.style.top = ev.clientY + 'px';
+  const hovered = document.elementFromPoint(ev.clientX, ev.clientY);
+  const slot = hovered && hovered.closest('.slot.targetable');
+  document.querySelectorAll('#player-row .slot.drag-hover').forEach(s => s.classList.remove('drag-hover'));
+  if(slot) slot.classList.add('drag-hover');
+}
+
+function endDrag(ev){
+  const hovered = document.elementFromPoint(ev.clientX, ev.clientY);
+  const slot = hovered && hovered.closest('.slot.targetable');
+  document.querySelectorAll('#player-row .slot').forEach(s => { s.classList.remove('targetable'); s.classList.remove('drag-hover'); });
+  if(dragGhost){ dragGhost.remove(); dragGhost = null; }
+  if(dragOriginEl){ dragOriginEl.style.opacity = ''; dragOriginEl = null; }
+
+  if(slot){
+    const laneIdx = Array.from(slot.parentElement.children).indexOf(slot);
+    state.selectedHandIdx = dragIdx;
+    dragIdx = null;
+    tryPlayCard(laneIdx);
+  } else {
+    dragIdx = null;
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && state.sacrificeMode){
+    state.sacrificeMode = false;
+    state.selectedHandIdx = null;
+    state.sacrificeStarted = false;
+    log('You reconsider.');
+    render();
+  }
+});
+
+/* ---------- Player actions ---------- */
 function tryPlayCard(laneIdx){
   if(state.turn !== 'player' || state.over) return;
   const idx = state.selectedHandIdx;
