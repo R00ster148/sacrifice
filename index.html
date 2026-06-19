@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sacrifice — a card game</title>
+<style>
+  :root{
+    --wood:#2b1d14; --wood-light:#3c2a1d; --paper:#e8dcc0; --blood:#7a1212;
+    --gold:#c9a23a; --ink:#1a1410;
+  }
+  * { box-sizing: border-box; }
+  body{
+    margin:0; min-height:100vh; background: radial-gradient(ellipse at center, #1b120c 0%, #0a0705 100%);
+    font-family: 'Courier New', monospace; color: var(--paper); overflow-x:hidden;
+  }
+  #game{ max-width:1100px; margin:0 auto; padding:16px; }
+  h1{ text-align:center; letter-spacing:4px; color:var(--gold); text-shadow:0 0 10px #000; font-size:28px; margin:8px 0 2px; }
+  #subtitle{ text-align:center; color:#8a7a5a; font-size:12px; margin-bottom:14px; letter-spacing:2px;}
+
+  #log{
+    background:#000; border:1px solid #3a2a18; height:54px; overflow-y:auto;
+    font-size:12px; color:#b89c5e; padding:6px 10px; margin-bottom:10px; border-radius:4px;
+  }
+  #log div{ margin-bottom:2px; }
+
+  .board{ background: var(--wood); border:3px solid #14100a; border-radius:8px; padding:14px; box-shadow: inset 0 0 30px #000; }
+  .row{ display:flex; justify-content:center; gap:14px; padding:10px 0; min-height:150px; align-items:center; }
+  .row.enemy{ border-bottom:2px dashed #4a3a22; }
+  .slot{
+    width:108px; height:150px; border:2px dashed #4a3a22; border-radius:6px;
+    display:flex; align-items:center; justify-content:center; position:relative;
+    background:rgba(0,0,0,0.15);
+  }
+  .slot.targetable{ border-color:var(--blood); box-shadow:0 0 10px var(--blood); cursor:crosshair; }
+
+  .card{
+    width:104px; height:146px; background:var(--paper); color:var(--ink); border-radius:6px;
+    border:2px solid #8a7a52; position:relative; padding:6px; cursor:pointer;
+    box-shadow:0 4px 8px rgba(0,0,0,0.6); user-select:none; transition: transform .12s ease;
+    display:flex; flex-direction:column; justify-content:space-between;
+  }
+  .card:hover{ transform: translateY(-6px); }
+  .card.selected{ outline:3px solid var(--gold); transform:translateY(-10px); }
+  .card .name{ font-size:11px; font-weight:bold; text-align:center; line-height:1.1; }
+  .card .art{ font-size:34px; text-align:center; }
+  .card .cost{ position:absolute; top:2px; left:4px; font-size:11px; color:var(--blood); font-weight:bold; }
+  .card .stats{ display:flex; justify-content:space-between; font-size:13px; font-weight:bold; padding:0 2px; }
+  .card .atk{ color:#7a1212; } .card .hp{ color:#1d5c1d; }
+  .card.enemy-card{ background:#d8c8a0; }
+  .card.dying{ animation: dying .4s forwards; }
+  @keyframes dying{ to{ opacity:0; transform: scale(0.5) rotate(20deg);} }
+  .card.attacking{ animation: attackBump .3s; }
+  @keyframes attackBump{ 50%{ transform: translateY(-25px) scale(1.05); } }
+  .card.hit{ animation: hitShake .3s; }
+  @keyframes hitShake{ 25%{transform:translateX(-6px);} 75%{transform:translateX(6px);} }
+
+  .empty-slot-icon{ font-size:22px; color:#3a2a18; }
+
+  #hand{ display:flex; justify-content:center; gap:10px; padding:16px 0 6px; min-height:160px; }
+
+  #stats-row{ display:flex; justify-content:space-between; align-items:center; margin:10px 0; font-size:13px; }
+  .player-info{ color:#d8c8a0; }
+  .bones{ color:var(--gold); }
+  .health-bar{ display:flex; gap:3px; }
+  .skull{ font-size:18px; }
+
+  #controls{ text-align:center; margin-top:14px; }
+  button{
+    background: var(--wood-light); color: var(--gold); border:1px solid var(--gold);
+    padding:8px 18px; font-family:inherit; font-size:13px; letter-spacing:1px; cursor:pointer;
+    border-radius:4px; margin:0 4px;
+  }
+  button:disabled{ opacity:0.35; cursor:not-allowed; }
+  button:hover:not(:disabled){ background:var(--gold); color:#1a1410; }
+
+  #overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,0.88); display:flex; align-items:center; justify-content:center;
+    flex-direction:column; z-index:50;
+  }
+  #overlay h2{ color:var(--gold); font-size:36px; letter-spacing:4px; text-shadow:0 0 20px var(--blood); }
+  #overlay p{ color:#b89c5e; max-width:480px; text-align:center; line-height:1.6; font-size:13px; }
+  .hidden{ display:none !important; }
+
+  .hint{ text-align:center; font-size:11px; color:#6a5a3a; margin-top:6px; min-height:14px; }
+</style>
+</head>
+<body>
+<div id="game">
+  <h1>☠ SACRIFICE ☠</h1>
+  <div id="subtitle">a card game of blood and bargains</div>
+  <div id="log"></div>
+
+  <div id="stats-row">
+    <div class="player-info">YOU — Bones: <span class="bones" id="player-bones">0</span></div>
+    <div class="health-bar" id="enemy-health"></div>
+  </div>
+
+  <div class="board">
+    <div class="row enemy" id="enemy-row"></div>
+    <div class="row" id="player-row"></div>
+  </div>
+
+  <div id="hand"></div>
+  <div class="hint" id="hint"></div>
+
+  <div id="controls">
+    <button id="end-turn-btn">End Turn</button>
+    <button id="restart-btn">Restart</button>
+  </div>
+
+  <div class="health-bar" id="player-health" style="justify-content:center;margin-top:8px;"></div>
+</div>
+
+<div id="overlay" class="hidden">
+  <h2 id="overlay-title">GAME OVER</h2>
+  <p id="overlay-text"></p>
+  <button id="overlay-restart">Try Again</button>
+</div>
+
+<script>
+/* ---------- Card definitions ---------- */
+// cost = number of creatures that must be sacrificed to play it (blood cost). 0 = free.
+const CARD_POOL = [
+  { id:'mouse', name:'Squirrel', art:'🐿️', atk:0, hp:1, cost:0 },
+  { id:'mouse2', name:'Mole', art:'🦔', atk:1, hp:1, cost:0 },
+  { id:'wolf', name:'Wolf Pup', art:'🐺', atk:2, hp:2, cost:1 },
+  { id:'bird', name:'Crow', art:'🐦', atk:2, hp:1, cost:1 },
+  { id:'boar', name:'Boar', art:'🐗', atk:3, hp:3, cost:1 },
+  { id:'bear', name:'Bear', art:'🐻', atk:4, hp:5, cost:2 },
+  { id:'stag', name:'Elder Stag', art:'🦌', atk:5, hp:4, cost:2 },
+  { id:'wolverine', name:'Wolverine', art:'🦡', atk:3, hp:2, cost:1 },
+  { id:'spider', name:'Cave Spider', art:'🕷️', atk:1, hp:1, cost:0 },
+  { id:'owl', name:'Night Owl', art:'🦉', atk:2, hp:2, cost:1 },
+  { id:'wyrm', name:'Bone Wyrm', art:'🐍', atk:6, hp:6, cost:3 },
+  { id:'raven', name:'Omen Raven', art:'🐦‍⬛', atk:1, hp:3, cost:0 },
+];
+
+const ENEMY_POOL = [
+  { id:'rat', name:'Sewer Rat', art:'🐀', atk:1, hp:1, cost:0 },
+  { id:'hound', name:'Hound', art:'🐕', atk:2, hp:2, cost:1 },
+  { id:'crow2', name:'Carrion Crow', art:'🐦', atk:2, hp:1, cost:0 },
+  { id:'ogre', name:'Ogre', art:'👹', atk:4, hp:4, cost:1 },
+  { id:'wraith', name:'Wraith', art:'👻', atk:3, hp:3, cost:1 },
+  { id:'troll', name:'Troll', art:'🧌', atk:5, hp:6, cost:2 },
+  { id:'wyvern', name:'Wyvern', art:'🐉', atk:6, hp:5, cost:2 },
+];
+
+const LANES = 4;
+let state = null;
+
+function freshCard(def){
+  return { ...def, uid: Math.random().toString(36).slice(2), curHp: def.hp };
+}
+
+function newGame(){
+  state = {
+    playerHP: 20,
+    enemyHP: 20,
+    playerBones: 0,
+    playerBoard: Array(LANES).fill(null),
+    enemyBoard: Array(LANES).fill(null),
+    hand: [],
+    selectedHandIdx: null,
+    sacrificeMode: false,
+    turn: 'player',
+    over: false,
+  };
+  drawHand(5);
+  log('A new game begins. The board awaits.');
+  render();
+}
+
+function drawCard(){
+  const def = CARD_POOL[Math.floor(Math.random()*CARD_POOL.length)];
+  return freshCard(def);
+}
+function drawEnemyCard(){
+  const def = ENEMY_POOL[Math.floor(Math.random()*ENEMY_POOL.length)];
+  return freshCard(def);
+}
+function drawHand(n){
+  for(let i=0;i<n;i++){
+    if(state.hand.length < 6) state.hand.push(drawCard());
+  }
+}
+
+function log(msg){
+  const el = document.getElementById('log');
+  const div = document.createElement('div');
+  div.textContent = msg;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ---------- Rendering ---------- */
+function render(){
+  renderHealth();
+  renderBoard();
+  renderHand();
+  document.getElementById('player-bones').textContent = state.playerBones;
+  const hint = document.getElementById('hint');
+  if(state.sacrificeMode){
+    hint.textContent = 'Click one of your creatures to sacrifice it for the selected card.';
+  } else if(state.selectedHandIdx !== null){
+    hint.textContent = 'Click an empty lane to play this card.';
+  } else {
+    hint.textContent = state.turn === 'player' ? 'Your turn — play a card or end your turn.' : "Opponent's turn...";
+  }
+  document.getElementById('end-turn-btn').disabled = state.turn !== 'player' || state.over;
+}
+
+function renderHealth(){
+  const mk = (hp, max) => {
+    let s = '';
+    const filled = Math.max(0, hp);
+    for(let i=0;i<max;i++) s += `<span class="skull">${i < filled ? '💀' : '⬜'}</span>`;
+    return s;
+  };
+  document.getElementById('player-health').innerHTML = mk(state.playerHP, 20);
+  document.getElementById('enemy-health').innerHTML = 'ENEMY ' + mk(state.enemyHP, 20);
+}
+
+function cardHTML(card, isEnemy){
+  return `
+    <div class="cost">${card.cost > 0 ? '🩸'+card.cost : ''}</div>
+    <div class="art">${card.art}</div>
+    <div class="name">${card.name}</div>
+    <div class="stats"><span class="atk">⚔${card.atk}</span><span class="hp">❤${card.curHp}</span></div>
+  `;
+}
+
+function renderBoard(){
+  const enemyRow = document.getElementById('enemy-row');
+  const playerRow = document.getElementById('player-row');
+  enemyRow.innerHTML = '';
+  playerRow.innerHTML = '';
+
+  for(let i=0;i<LANES;i++){
+    const slot = document.createElement('div');
+    slot.className = 'slot';
+    const card = state.enemyBoard[i];
+    if(card){
+      const c = document.createElement('div');
+      c.className = 'card enemy-card';
+      c.dataset.uid = card.uid;
+      c.innerHTML = cardHTML(card, true);
+      slot.appendChild(c);
+    } else {
+      slot.innerHTML = '<span class="empty-slot-icon">·</span>';
+    }
+    enemyRow.appendChild(slot);
+  }
+
+  for(let i=0;i<LANES;i++){
+    const slot = document.createElement('div');
+    slot.className = 'slot';
+    const card = state.playerBoard[i];
+    if(card){
+      const c = document.createElement('div');
+      c.className = 'card';
+      c.dataset.uid = card.uid;
+      c.innerHTML = cardHTML(card, false);
+      if(state.sacrificeMode){
+        c.style.outline = '2px solid var(--blood)';
+        c.onclick = () => performSacrificePlay(i);
+      }
+      slot.appendChild(c);
+    } else {
+      slot.innerHTML = '<span class="empty-slot-icon">·</span>';
+      if(state.selectedHandIdx !== null && !state.sacrificeMode){
+        slot.classList.add('targetable');
+        slot.onclick = () => tryPlayCard(i);
+      }
+    }
+    playerRow.appendChild(slot);
+  }
+}
+
+function renderHand(){
+  const hand = document.getElementById('hand');
+  hand.innerHTML = '';
+  state.hand.forEach((card, idx) => {
+    const c = document.createElement('div');
+    c.className = 'card';
+    if(idx === state.selectedHandIdx) c.classList.add('selected');
+    c.innerHTML = cardHTML(card, false);
+    c.onclick = () => selectHandCard(idx);
+    hand.appendChild(c);
+  });
+}
+
+/* ---------- Player actions ---------- */
+function selectHandCard(idx){
+  if(state.turn !== 'player' || state.over) return;
+  if(state.selectedHandIdx === idx){
+    state.selectedHandIdx = null;
+    state.sacrificeMode = false;
+  } else {
+    state.selectedHandIdx = idx;
+    state.sacrificeMode = false;
+  }
+  render();
+}
+
+function tryPlayCard(laneIdx){
+  if(state.turn !== 'player' || state.over) return;
+  const idx = state.selectedHandIdx;
+  if(idx === null) return;
+  const card = state.hand[idx];
+  if(state.playerBoard[laneIdx]) return;
+
+  const aliveCount = state.playerBoard.filter(Boolean).length;
+  if(card.cost > 0){
+    if(aliveCount < card.cost){
+      log(`Not enough creatures on the board to sacrifice for ${card.name} (needs ${card.cost}).`);
+      return;
+    }
+    state.sacrificeMode = true;
+    state.pendingLane = laneIdx;
+    render();
+    return;
+  }
+
+  state.playerBoard[laneIdx] = card;
+  state.hand.splice(idx,1);
+  state.selectedHandIdx = null;
+  log(`You play ${card.name}.`);
+  drawHand(1);
+  render();
+}
+
+let sacrificesNeeded = 0;
+let sacrificesDone = [];
+function performSacrificePlay(laneClickedIdx){
+  const idx = state.selectedHandIdx;
+  const card = state.hand[idx];
+  if(!state.sacrificeStarted){
+    state.sacrificeStarted = true;
+    sacrificesNeeded = card.cost;
+    sacrificesDone = [];
+  }
+  const sacCard = state.playerBoard[laneClickedIdx];
+  if(!sacCard) return;
+  state.playerBoard[laneClickedIdx] = null;
+  sacrificesDone.push(sacCard.name);
+  state.playerBones += 1;
+
+  if(sacrificesDone.length >= sacrificesNeeded){
+    const lane = state.pendingLane;
+    state.playerBoard[lane] = card;
+    state.hand.splice(idx,1);
+    log(`You sacrifice ${sacrificesDone.join(', ')} to summon ${card.name}.`);
+    state.selectedHandIdx = null;
+    state.sacrificeMode = false;
+    state.sacrificeStarted = false;
+    drawHand(1);
+  }
+  render();
+}
+
+/* ---------- Combat ---------- */
+function endTurn(){
+  if(state.turn !== 'player' || state.over) return;
+  state.selectedHandIdx = null;
+  state.sacrificeMode = false;
+  state.turn = 'enemy';
+  render();
+  setTimeout(playerAttackPhase, 300);
+}
+
+async function playerAttackPhase(){
+  for(let i=0;i<LANES;i++){
+    if(state.over) return;
+    const attacker = state.playerBoard[i];
+    if(!attacker) continue;
+    await doAttack(attacker, i, state.playerBoard, state.enemyBoard, 'enemy');
+    await sleep(250);
+  }
+  if(state.over) return;
+  setTimeout(enemyTurn, 400);
+}
+
+async function enemyTurn(){
+  // simple AI: play cards into empty lanes if it can afford sacrifice; else play free cards
+  enemyPlayCards();
+  render();
+  await sleep(500);
+  for(let i=0;i<LANES;i++){
+    if(state.over) return;
+    const attacker = state.enemyBoard[i];
+    if(!attacker) continue;
+    await doAttack(attacker, i, state.enemyBoard, state.playerBoard, 'player');
+    await sleep(250);
+  }
+  if(state.over) return;
+  state.turn = 'player';
+  drawHand(1 > state.hand.length ? 0 : 0);
+  render();
+}
+
+function enemyPlayCards(){
+  const emptyLanes = [];
+  for(let i=0;i<LANES;i++) if(!state.enemyBoard[i]) emptyLanes.push(i);
+  if(emptyLanes.length === 0) return;
+
+  let aliveCount = state.enemyBoard.filter(Boolean).length;
+  // try to fill up to 2 lanes a turn
+  let plays = 0;
+  while(emptyLanes.length > 0 && plays < 2){
+    const lane = emptyLanes.shift();
+    const card = drawEnemyCard();
+    if(card.cost > 0){
+      if(aliveCount < card.cost) continue;
+      // sacrifice weakest creatures
+      const sacIdx = [];
+      const boardCopy = state.enemyBoard.map((c,i)=>({c,i})).filter(x=>x.c);
+      boardCopy.sort((a,b)=>a.c.atk - b.c.atk);
+      for(let k=0;k<card.cost && k<boardCopy.length;k++) sacIdx.push(boardCopy[k].i);
+      if(sacIdx.length < card.cost) continue;
+      sacIdx.forEach(si => { log(`Enemy sacrifices ${state.enemyBoard[si].name}.`); state.enemyBoard[si] = null; });
+      aliveCount -= sacIdx.length;
+    }
+    state.enemyBoard[lane] = card;
+    aliveCount += 1;
+    log(`Enemy plays ${card.name}.`);
+    plays++;
+  }
+}
+
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+async function doAttack(attacker, laneIdx, ownBoard, enemyBoard, targetSide){
+  const cardEl = document.querySelector(`.card[data-uid="${attacker.uid}"]`);
+  if(cardEl) cardEl.classList.add('attacking');
+  await sleep(280);
+
+  const defender = enemyBoard[laneIdx];
+  if(defender){
+    defender.curHp -= attacker.atk;
+    attacker.curHp -= defender.atk;
+    log(`${attacker.name} (${attacker.atk}) clashes with ${defender.name} (${defender.atk}).`);
+    render();
+    const defEl = document.querySelector(`.card[data-uid="${defender.uid}"]`);
+    if(defEl) defEl.classList.add('hit');
+    const atkEl = document.querySelector(`.card[data-uid="${attacker.uid}"]`);
+    if(atkEl) atkEl.classList.add('hit');
+    await sleep(350);
+
+    if(defender.curHp <= 0){
+      log(`${defender.name} dies.`);
+      enemyBoard[laneIdx] = null;
+    }
+    if(attacker.curHp <= 0){
+      log(`${attacker.name} dies.`);
+      ownBoard[laneIdx] = null;
+    }
+  } else {
+    if(targetSide === 'enemy'){
+      state.enemyHP -= attacker.atk;
+      log(`${attacker.name} strikes the enemy directly for ${attacker.atk}.`);
+    } else {
+      state.playerHP -= attacker.atk;
+      log(`${attacker.name} strikes you directly for ${attacker.atk}.`);
+    }
+  }
+  render();
+  checkGameOver();
+}
+
+function checkGameOver(){
+  if(state.over) return;
+  if(state.playerHP <= 0){
+    state.over = true;
+    showOverlay('YOU DIED', 'The forest claims another fool. Your bones join the pile.');
+  } else if(state.enemyHP <= 0){
+    state.over = true;
+    showOverlay('VICTORY', 'The opponent falls silent. You may leave this table... for now.');
+  }
+}
+
+function showOverlay(title, text){
+  document.getElementById('overlay-title').textContent = title;
+  document.getElementById('overlay-text').textContent = text;
+  document.getElementById('overlay').classList.remove('hidden');
+}
+
+/* ---------- Init ---------- */
+document.getElementById('end-turn-btn').onclick = endTurn;
+document.getElementById('restart-btn').onclick = () => { newGame(); };
+document.getElementById('overlay-restart').onclick = () => {
+  document.getElementById('overlay').classList.add('hidden');
+  newGame();
+};
+
+newGame();
+</script>
+</body>
+</html>
