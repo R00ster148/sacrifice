@@ -114,12 +114,14 @@
 
   .telegraph-row{ min-height:54px; padding:0; transform:scale(0.8); filter:brightness(0.85); margin-bottom:-10px; }
   .telegraph-cell{ width:114px; height:54px; display:flex; align-items:center; justify-content:center; position:relative; }
-  .telegraph-cell .arrow-icon{ width:46px; height:46px; opacity:0; transition: opacity .2s ease; }
-  .telegraph-cell.active .arrow-icon{ opacity:0.95; animation: arrowBob 1.4s ease-in-out infinite; }
-  .telegraph-cell .arrow-icon svg{ width:100%; height:100%; filter: drop-shadow(0 0 10px #ff5a14) drop-shadow(0 2px 2px #000); }
-  .telegraph-cell .arrow-icon svg .shaft{ fill:#ff9a3c; stroke:#5a2a0a; stroke-width:2; stroke-linejoin:round; }
-  .telegraph-cell .arrow-icon svg .shine{ stroke:#ffe0a8; stroke-width:1.6; opacity:0.7; fill:none; }
-  @keyframes arrowBob{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(8px); } }
+  .telegraph-cell .arrow-icon{ width:46px; height:46px; opacity:0.22; transition: opacity .2s ease; }
+  .telegraph-cell.active .arrow-icon{ opacity:1; }
+  .telegraph-cell .arrow-icon svg{ width:100%; height:100%; filter: drop-shadow(0 2px 2px #000); }
+  .telegraph-cell .arrow-icon svg .shaft{ fill:#5a4326; stroke:#1c1206; stroke-width:2; stroke-linejoin:round; }
+  .telegraph-cell .arrow-icon svg .shine{ stroke:#7a6038; stroke-width:1.6; opacity:0.7; fill:none; }
+  .telegraph-cell.active .arrow-icon svg{ filter: drop-shadow(0 0 10px #ff5a14) drop-shadow(0 2px 2px #000); }
+  .telegraph-cell.active .arrow-icon svg .shaft{ fill:#ff9a3c; stroke:#5a2a0a; }
+  .telegraph-cell.active .arrow-icon svg .shine{ stroke:#ffe0a8; }
   .slot{
     width:114px; height:160px; border:1px solid #241a0e; border-radius:6px;
     display:flex; align-items:center; justify-content:center; position:relative;
@@ -251,7 +253,14 @@
   .slot.targetable.drag-hover .empty-slot-icon{ opacity:1; filter: drop-shadow(0 0 16px #ff4040); }
 
 
-  #hand{ display:flex; justify-content:center; gap:12px; padding:20px 0 8px; min-height:170px; perspective:1200px; }
+  #hand{ position:relative; height:190px; margin:20px 0 8px; perspective:1200px; }
+  .hand-slot{
+    position:absolute; left:50%; top:0; width:108px; height:152px; margin-left:-54px;
+    transform-origin: 50% 520px; transition: transform .25s ease;
+  }
+  .hand-slot.raised{ z-index:200; }
+  .hand-lift{ transition: transform .15s ease; transform-origin: 50% 100%; }
+  .hand-slot.raised .hand-lift{ transform: translateY(-36px) scale(1.1); }
 
   #stats-row{ display:flex; justify-content:space-between; align-items:center; margin:12px 0; gap:18px; }
   .meter-block{ flex:1; }
@@ -671,13 +680,44 @@ function renderBoard(){
 function renderHand(){
   const hand = document.getElementById('hand');
   hand.innerHTML = '';
+  const n = state.hand.length;
+  const stepDeg = n > 1 ? Math.min(7, 34 / (n - 1)) : 0;
   state.hand.forEach((card, idx) => {
+    const angle = (idx - (n - 1) / 2) * stepDeg;
+    const slot = document.createElement('div');
+    slot.className = 'hand-slot';
+    slot.style.transform = `rotate(${angle}deg)`;
+    slot.style.zIndex = idx;
+
+    const lift = document.createElement('div');
+    lift.className = 'hand-lift';
+
     const c = document.createElement('div');
     c.className = 'card';
     c.innerHTML = cardHTML(card);
     attachTilt(c);
     attachHandDrag(c, idx);
-    hand.appendChild(c);
+
+    lift.appendChild(c);
+    slot.appendChild(lift);
+    hand.appendChild(slot);
+  });
+  attachHandHover();
+}
+
+let handHoverAttached = false;
+function attachHandHover(){
+  const hand = document.getElementById('hand');
+  if(handHoverAttached) return;
+  handHoverAttached = true;
+  hand.addEventListener('mousemove', e => {
+    const hit = document.elementFromPoint(e.clientX, e.clientY);
+    const slot = hit && hit.closest('.hand-slot');
+    hand.querySelectorAll('.hand-slot.raised').forEach(s => { if(s !== slot) s.classList.remove('raised'); });
+    if(slot) slot.classList.add('raised');
+  });
+  hand.addEventListener('mouseleave', () => {
+    hand.querySelectorAll('.hand-slot.raised').forEach(s => s.classList.remove('raised'));
   });
 }
 
